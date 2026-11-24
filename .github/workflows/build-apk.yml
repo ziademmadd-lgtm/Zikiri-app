@@ -4,23 +4,30 @@ name: Build ZIKRI Android APK
 "on":
   workflow_dispatch:
   push:
-    paths: ["*.zip", ".github/workflows/build-apk.yml"]
+    paths:
+      - "*.zip"
+      - ".github/workflows/build-apk.yml"
 
 permissions:
   contents: read
 
 jobs:
   build:
+    name: Build ZIKRI APK
     runs-on: ubuntu-latest
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -28,33 +35,51 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Extract project
+      - name: Prepare Android SDK
+        shell: bash
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" -print -quit)
+          echo "Checking Android SDK..."
+          ls -la "$ANDROID_HOME/cmdline-tools"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found"
+            exit 1
+          fi
+          echo "Using: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Extract project ZIP
+        shell: bash
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
           if [ -z "$ZIP_FILE" ]; then
-            echo "ZIP file not found"
+            echo "Project ZIP not found"
             exit 1
           fi
-          mkdir extracted
+
+          mkdir -p extracted
           unzip -q "$ZIP_FILE" -d extracted
-          PACKAGE_FILE=$(find extracted -name package.json | head -n 1)
+
+          PACKAGE_FILE=$(find extracted -name package.json -not -path "*/node_modules/*" | head -n 1)
           if [ -z "$PACKAGE_FILE" ]; then
-            echo "package.json not found"
+            echo "package.json not found inside ZIP"
             exit 1
           fi
+
           PROJECT_DIR=$(dirname "$PACKAGE_FILE")
           cp -R "$PROJECT_DIR"/. .
 
       - name: Install dependencies
         run: npm install
 
-      - name: Build website
+      - name: Install Capacitor Android
+        run: npm install @capacitor/android
+
+      - name: Build web application
         run: npm run build
 
-      - name: Add Android
+      - name: Add Android platform
         run: |
           if [ ! -d android ]; then
             npx cap add android
@@ -63,7 +88,7 @@ jobs:
       - name: Sync Android
         run: npx cap sync android
 
-      - name: Build APK
+      - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
@@ -72,6 +97,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ZIKRI-APK
+          name: ZIKRI-Android-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
