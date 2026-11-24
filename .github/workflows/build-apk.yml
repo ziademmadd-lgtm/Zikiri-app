@@ -1,80 +1,60 @@
 
 name: Build ZIKRI Android APK
 
-on:
+"on":
   workflow_dispatch:
   push:
-    paths:
-      -  *.zip 
-      -  .github/workflows/build-apk.yml 
+    paths: ["*.zip", ".github/workflows/build-apk.yml"]
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: package-lock.json
 
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version:  17 
+          java-version: "17"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Extract ZIKRI project
-        shell: bash
+      - name: Extract project
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name  *.zip  | head -n 1)
-
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" -print -quit)
           if [ -z "$ZIP_FILE" ]; then
-            echo "Project ZIP not found"
+            echo "ZIP file not found"
             exit 1
           fi
-
-          mkdir -p extracted
+          mkdir extracted
           unzip -q "$ZIP_FILE" -d extracted
-
-          PACKAGE_FILE=$(find extracted -name package.json -not -path  */node_modules/*  | head -n 1)
-
+          PACKAGE_FILE=$(find extracted -name package.json | head -n 1)
           if [ -z "$PACKAGE_FILE" ]; then
-            echo "package.json not found inside ZIP"
+            echo "package.json not found"
             exit 1
           fi
-
           PROJECT_DIR=$(dirname "$PACKAGE_FILE")
           cp -R "$PROJECT_DIR"/. .
-
-          echo "Project extracted successfully"
 
       - name: Install dependencies
         run: npm install
 
-      - name: Build web application
+      - name: Build website
         run: npm run build
 
-      - name: Check Capacitor configuration
-        run: |
-          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
-            echo "Capacitor configuration missing"
-            exit 1
-          fi
-
-      - name: Add Android platform
+      - name: Add Android
         run: |
           if [ ! -d android ]; then
             npx cap add android
@@ -83,17 +63,16 @@ jobs:
       - name: Sync Android
         run: npx cap sync android
 
-      - name: Build Debug APK
+      - name: Build APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: Upload ZIKRI APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ZIKRI-Android-APK
+          name: ZIKRI-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 14
 
